@@ -1,5 +1,4 @@
 "use client";
-import { faker } from "@faker-js/faker";
 import {
   GanttCreateMarkerTrigger,
   GanttFeatureList,
@@ -24,73 +23,34 @@ import {
   ContextMenuItem,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-const capitalize = (str: string) => str.charAt(0).toUpperCase() + str.slice(1);
-const statuses = [
-  { id: faker.string.uuid(), name: "Confirmed", color: "#10B981" },
-  { id: faker.string.uuid(), name: "Pending", color: "#F59E0B" },
-  { id: faker.string.uuid(), name: "Cancelled", color: "#EF4444" },
-];
-const guests = Array.from({ length: 8 })
-  .fill(null)
-  .map(() => ({
-    id: faker.string.uuid(),
-    name: faker.person.fullName(),
-    image: faker.image.avatar(),
-  }));
-// Hotel rooms
-const hotelRooms = Array.from({ length: 5 })
-  .fill(null)
-  .map((_, index) => ({
-    id: faker.string.uuid(),
-    name: `Room ${101 + index}`,
-  }));
-// Generate hotel reservations - multiple guests can book the same room for different periods
-const hotelReservations = Array.from({ length: 12 })
-  .fill(null)
-  .map(() => {
-    const startDate = faker.date.future({ years: 0.3, refDate: new Date() });
-    const endDate = faker.date.future({ years: 0.1, refDate: startDate });
-    const room = faker.helpers.arrayElement(hotelRooms);
-    const guest = faker.helpers.arrayElement(guests);
+import type { GanttFeature } from "@/components/ui/shadcn-io/gantt";
 
-    return {
-      id: faker.string.uuid(),
-      name: `${guest.name} - ${faker.helpers.arrayElement([
-        "Business Trip",
-        "Vacation",
-        "Conference",
-        "Weekend Getaway",
-      ])}`,
-      startAt: startDate,
-      endAt: endDate,
-      status: faker.helpers.arrayElement(statuses),
-      lane: room.id, // This groups reservations by room
-      // Store additional data that's not part of core GanttFeature
-      metadata: {
-        guest,
-        room,
-        group: { name: "Hotel Reservations" },
-      },
-    };
-  });
-const exampleMarkers = Array.from({ length: 3 })
-  .fill(null)
-  .map(() => ({
-    id: faker.string.uuid(),
-    date: faker.date.future({ years: 0.2, refDate: new Date() }),
-    label: faker.helpers.arrayElement([
-      "Holiday Period",
-      "Conference Week",
-      "Peak Season",
-    ]),
-    className: faker.helpers.arrayElement([
-      "bg-blue-100 text-blue-900",
-      "bg-green-100 text-green-900",
-      "bg-purple-100 text-purple-900",
-    ]),
-  }));
-const Gantt = () => {
-  const [reservations, setReservations] = useState(hotelReservations);
+interface ReservationMetadata {
+  guest?: { id: string; name: string; image: string };
+  room?: { id: string; name: string };
+  group?: { name: string };
+}
+
+interface Reservation extends GanttFeature {
+  metadata?: ReservationMetadata;
+}
+
+interface GanttProps {
+  reservations?: Reservation[];
+  markers?: Array<{
+    id: string;
+    date: Date;
+    label: string;
+    className?: string;
+  }>;
+}
+
+const Gantt = ({
+  reservations: initialReservations = [],
+  markers: initialMarkers = [],
+}: GanttProps = {}) => {
+  const [reservations, setReservations] = useState(initialReservations);
+  const [markers, setMarkers] = useState(initialMarkers);
 
   // Group reservations by room (lane), then by group
   const groupedReservations = groupBy(reservations, "metadata.group.name");
@@ -109,10 +69,20 @@ const Gantt = () => {
     setReservations((prev) =>
       prev.filter((reservation) => reservation.id !== id)
     );
-  const handleRemoveMarker = (id: string) =>
+  const handleRemoveMarker = (id: string) => {
+    setMarkers((prev) => prev.filter((marker) => marker.id !== id));
     console.log(`Remove marker: ${id}`);
-  const handleCreateMarker = (date: Date) =>
+  };
+  const handleCreateMarker = (date: Date) => {
+    const newMarker = {
+      id: crypto.randomUUID(),
+      date,
+      label: "New Marker",
+      className: "bg-blue-100 text-blue-900",
+    };
+    setMarkers((prev) => [...prev, newMarker]);
     console.log(`Create marker: ${date.toISOString()}`);
+  };
   const handleMoveReservation = (
     id: string,
     startAt: Date,
@@ -145,6 +115,7 @@ const Gantt = () => {
                 ([roomId, roomReservationList]) => {
                   // Get room from the first reservation's metadata (all reservations in this group share the same room)
                   const room = roomReservationList[0]?.metadata?.room;
+                  const firstReservation = roomReservationList[0];
                   // Create a representative feature for the sidebar
                   const representativeReservation = {
                     id: roomId,
@@ -159,7 +130,11 @@ const Gantt = () => {
                         ...roomReservationList.map((r) => r.endAt.getTime())
                       )
                     ),
-                    status: roomReservationList[0]?.status,
+                    status: firstReservation?.status || {
+                      id: "default",
+                      name: "Unknown",
+                      color: "#6B7280",
+                    },
                   };
 
                   return (
@@ -188,65 +163,70 @@ const Gantt = () => {
                         features={roomReservationList}
                         onMove={handleMoveReservation}
                       >
-                        {(reservation) => (
-                          <ContextMenu>
-                            <ContextMenuTrigger asChild>
-                              <div className="flex items-center gap-2 w-full">
-                                <p className="flex-1 truncate text-xs">
-                                  {reservation.name}
-                                </p>
-                                {(reservation as any).metadata?.guest && (
-                                  <Avatar className="h-4 w-4">
-                                    <AvatarImage
-                                      src={
-                                        (reservation as any).metadata.guest
-                                          .image
-                                      }
-                                    />
-                                    <AvatarFallback>
-                                      {(
-                                        reservation as any
-                                      ).metadata.guest.name?.slice(0, 2)}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                )}
-                              </div>
-                            </ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem
-                                className="flex items-center gap-2"
-                                onClick={() =>
-                                  handleViewReservation(reservation.id)
-                                }
-                              >
-                                <EyeIcon
-                                  className="text-muted-foreground"
-                                  size={16}
-                                />
-                                View reservation
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                className="flex items-center gap-2"
-                                onClick={() => handleCopyLink(reservation.id)}
-                              >
-                                <LinkIcon
-                                  className="text-muted-foreground"
-                                  size={16}
-                                />
-                                Copy link
-                              </ContextMenuItem>
-                              <ContextMenuItem
-                                className="flex items-center gap-2 text-destructive"
-                                onClick={() =>
-                                  handleRemoveReservation(reservation.id)
-                                }
-                              >
-                                <TrashIcon size={16} />
-                                Cancel reservation
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        )}
+                        {(reservation) => {
+                          const reservationWithMetadata =
+                            reservation as Reservation;
+                          return (
+                            <ContextMenu>
+                              <ContextMenuTrigger asChild>
+                                <div className="flex items-center gap-2 w-full">
+                                  <p className="flex-1 truncate text-xs">
+                                    {reservation.name}
+                                  </p>
+                                  {reservationWithMetadata.metadata?.guest && (
+                                    <Avatar className="h-4 w-4">
+                                      <AvatarImage
+                                        src={
+                                          reservationWithMetadata.metadata.guest
+                                            .image
+                                        }
+                                      />
+                                      <AvatarFallback>
+                                        {reservationWithMetadata.metadata.guest.name?.slice(
+                                          0,
+                                          2
+                                        )}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  )}
+                                </div>
+                              </ContextMenuTrigger>
+                              <ContextMenuContent>
+                                <ContextMenuItem
+                                  className="flex items-center gap-2"
+                                  onClick={() =>
+                                    handleViewReservation(reservation.id)
+                                  }
+                                >
+                                  <EyeIcon
+                                    className="text-muted-foreground"
+                                    size={16}
+                                  />
+                                  View reservation
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  className="flex items-center gap-2"
+                                  onClick={() => handleCopyLink(reservation.id)}
+                                >
+                                  <LinkIcon
+                                    className="text-muted-foreground"
+                                    size={16}
+                                  />
+                                  Copy link
+                                </ContextMenuItem>
+                                <ContextMenuItem
+                                  className="flex items-center gap-2 text-destructive"
+                                  onClick={() =>
+                                    handleRemoveReservation(reservation.id)
+                                  }
+                                >
+                                  <TrashIcon size={16} />
+                                  Cancel reservation
+                                </ContextMenuItem>
+                              </ContextMenuContent>
+                            </ContextMenu>
+                          );
+                        }}
                       </GanttFeatureRow>
                     </div>
                   )
@@ -255,7 +235,7 @@ const Gantt = () => {
             )
           )}
         </GanttFeatureList>
-        {exampleMarkers.map((marker) => (
+        {markers.map((marker) => (
           <GanttMarker
             key={marker.id}
             {...marker}
